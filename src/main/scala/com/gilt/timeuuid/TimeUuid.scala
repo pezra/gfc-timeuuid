@@ -1,15 +1,14 @@
 package com.gilt.timeuuid
 
 import java.util.{UUID, Random}
+import java.lang.ThreadLocal
 
 //Based on http://www.ietf.org/rfc/rfc4122.txt & Datastax/Cassandra/Astyanax timeUUID generation
 object TimeUuid {
 
-  private[this] val clockSeqAndNode = buildClockSeqAndNode()
+  def apply(): UUID = new UUID(buildTime(Clock.time()), buildClockSeqAndNode())
 
-  def apply(): UUID = new UUID(buildTime(Clock.time()), clockSeqAndNode)
-
-  def apply(timeInMillis: Long): UUID = new UUID(buildTime(convertToNanos(timeInMillis)), clockSeqAndNode)
+  def apply(timeInMillis: Long): UUID = new UUID(buildTime(convertToNanos(timeInMillis)),  buildClockSeqAndNode())
 
   private def convertToNanos(timeInMillis: Long): Long = (timeInMillis - Clock.StartEpoch) * 10000
 
@@ -23,12 +22,29 @@ object TimeUuid {
   }
 
   private def buildClockSeqAndNode(): Long = {
-    val clock: Long = new Random(System.currentTimeMillis).nextLong
     var lsb: Long = 0
-    lsb |= (clock & 0x0000000000003FFFL) << 48 // clock sequence (14 bits)
+    lsb |= (nextClockSeq & 0x000000000000003FL) << 56
+    lsb |= (nextRandomLong & 0x00000000000000FFL) << 48
     lsb |= 0x8000000000000000L // variant (2 bits)
     lsb |= Node.id // 6 bytes
     lsb
+  }
+
+  private val tRand = new ThreadLocal[Random]
+  private def nextRandomLong():Long = {
+    var rand = Option(tRand.get) getOrElse {
+      val r = new Random()
+      tRand.set(r)
+      r
+    }
+    rand.nextLong
+  }
+
+  private val tClockSeq = new ThreadLocal[Int]
+  private def nextClockSeq():Long = {
+    val oldVal = Option(tClockSeq.get) getOrElse 0
+    tClockSeq.set(oldVal + 1)
+    oldVal
   }
 }
 
